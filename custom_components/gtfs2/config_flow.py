@@ -145,7 +145,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         check_data = await self._check_data(self._user_inputs)
         if check_data :
             errors["base"] = check_data
-            return self.async_abort(reason=check_data)
+            return self.async_abort(reason=check_data, description_placeholders=TRANSLATION_DESCRIPTION_PLACEHOLDERS)
         else:
             return self.async_create_entry(
                 title=user_input[CONF_NAME], data=self._user_inputs
@@ -188,7 +188,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         check_data = await self._check_data(user_input)
         if check_data :
             errors["base"] = check_data
-            return self.async_abort(reason=check_data)
+            return self.async_abort(reason=check_data, description_placeholders=TRANSLATION_DESCRIPTION_PLACEHOLDERS)
         else:
             self._user_inputs.update(user_input)
             _LOGGER.debug(f"UserInputs Source: {self._user_inputs}")
