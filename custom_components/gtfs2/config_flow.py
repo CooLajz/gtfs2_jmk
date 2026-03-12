@@ -220,6 +220,12 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_agency(self, user_input: dict | None = None) -> FlowResult:
         """Handle the agency."""
         errors: dict[str, str] = {}
+        if self._pygtfs and hasattr(self._pygtfs, 'session'):
+            try:
+                self._pygtfs.session.close()
+                self._pygtfs.engine.dispose()
+            except Exception:
+                pass
         self._pygtfs = get_gtfs(
             self.hass,
             DEFAULT_PATH,
@@ -285,6 +291,13 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if check_data :
             errors["base"] = check_data
             return self.async_abort(reason=check_data)
+            
+        if self._pygtfs and hasattr(self._pygtfs, 'session'):
+            try:
+                self._pygtfs.session.close()
+                self._pygtfs.engine.dispose()
+            except Exception:
+                pass            
         self._pygtfs = get_gtfs(
             self.hass,
             DEFAULT_PATH,
@@ -426,6 +439,12 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )            
 
     async def _check_data(self, data):
+        if self._pygtfs and hasattr(self._pygtfs, 'session'):
+            try:
+                self._pygtfs.session.close()
+                self._pygtfs.engine.dispose()
+            except Exception:
+                pass
         self._pygtfs = await self.hass.async_add_executor_job(
             get_gtfs, self.hass, DEFAULT_PATH, data, False
         )
@@ -438,6 +457,12 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return None
         
     async def _check_config(self, data):
+        if self._pygtfs and hasattr(self._pygtfs, 'session'):
+            try:
+                self._pygtfs.session.close()
+                self._pygtfs.engine.dispose()
+            except Exception:
+                pass
         self._pygtfs = await self.hass.async_add_executor_job(
             get_gtfs, self.hass, DEFAULT_PATH, data, False
         )
@@ -587,6 +612,12 @@ class GTFSOptionsFlowHandler(config_entries.OptionsFlow):
     
 async def _check_stop_list(self, data):
     _LOGGER.debug("Checkstops option with data: %s", data)
+    if self._pygtfs and hasattr(self._pygtfs, 'session'):
+        try:
+            self._pygtfs.session.close()
+            self._pygtfs.engine.dispose()
+        except Exception:
+            pass    
     self._pygtfs = await self.hass.async_add_executor_job(
         get_gtfs, self.hass, DEFAULT_PATH, data, False
     )
