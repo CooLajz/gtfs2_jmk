@@ -52,19 +52,14 @@ from .const import (
     CONF_MAX_LOCAL_STOPS
 )    
 
-from .gtfs_helper import (
-    get_gtfs,
-    get_next_departure,
-    get_route_list,
-    get_stop_list,
-    get_datasources,
-    remove_datasource,
-    check_datasource_index,
-    get_agency_list,
-    get_local_stop_list
-)
-
 _LOGGER = logging.getLogger(__name__)
+
+
+def _gtfs_helper():
+    """Load gtfs_helper lazily so config flow can register before runtime deps load."""
+    from . import gtfs_helper
+
+    return gtfs_helper
 
 TRANSLATION_DESCRIPTION_PLACEHOLDERS = {
     "docu_extracting": "https://github.com/vingerha/gtfs2/wiki/1.-Initial-setup:-the-static-data-source#performance",
@@ -103,7 +98,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Handle the source."""
         errors: dict[str, str] = {}      
         if user_input is None:
-            datasources = await get_datasources(self.hass, DEFAULT_PATH)
+            datasources = await _gtfs_helper().get_datasources(self.hass, DEFAULT_PATH)
             return self.async_show_form(
                 step_id="start_end",
                 data_schema=vol.Schema(
@@ -124,7 +119,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Handle the source."""
         errors: dict[str, str] = {}       
         if user_input is None:
-            datasources = await get_datasources(self.hass, DEFAULT_PATH)
+            datasources = await _gtfs_helper().get_datasources(self.hass, DEFAULT_PATH)
             return self.async_show_form(
                 step_id="local_stops",
                 data_schema=vol.Schema(
@@ -198,7 +193,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Handle a flow initialized by the user."""
         errors: dict[str, str] = {}
         if user_input is None:
-            datasources = await get_datasources(self.hass, DEFAULT_PATH)
+            datasources = await _gtfs_helper().get_datasources(self.hass, DEFAULT_PATH)
             return self.async_show_form(
                 step_id="remove",
                 data_schema=vol.Schema(
@@ -210,7 +205,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors=errors,
             )
         try:
-            removed = remove_datasource(self.hass, DEFAULT_PATH, user_input[CONF_FILE], True)
+            removed = _gtfs_helper().remove_datasource(
+                self.hass, DEFAULT_PATH, user_input[CONF_FILE], True
+            )
             _LOGGER.debug(f"Removed gtfs data source: {removed}")
         except Exception as ex:
             _LOGGER.error("Error while deleting : %s", {ex})
@@ -226,7 +223,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._pygtfs.engine.dispose()
             except Exception:
                 pass
-        self._pygtfs = get_gtfs(
+        self._pygtfs = _gtfs_helper().get_gtfs(
             self.hass,
             DEFAULT_PATH,
             self._user_inputs,
@@ -240,7 +237,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 description_placeholders=TRANSLATION_DESCRIPTION_PLACEHOLDERS,
             )
             
-        agencies = get_agency_list(self._pygtfs, self._user_inputs)
+        agencies = _gtfs_helper().get_agency_list(self._pygtfs, self._user_inputs)
         if len(agencies) > 1:
             agencies[:0] = ["0: ALL"]
             errors: dict[str, str] = {}
@@ -298,7 +295,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._pygtfs.engine.dispose()
             except Exception:
                 pass            
-        self._pygtfs = get_gtfs(
+        self._pygtfs = _gtfs_helper().get_gtfs(
             self.hass,
             DEFAULT_PATH,
             self._user_inputs,
@@ -307,7 +304,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is None:
             route_list = [
                 selector.SelectOptionDict(value=r, label=r.split('##')[1])
-                for r in get_route_list(self._pygtfs, self._user_inputs)
+                for r in _gtfs_helper().get_route_list(self._pygtfs, self._user_inputs)
                 ]
             return self.async_show_form(
                 step_id="route",
@@ -332,7 +329,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is None:
             try:
-                stops = get_stop_list(
+                stops = _gtfs_helper().get_stop_list(
                     self._pygtfs,
                     self._user_inputs[CONF_ROUTE],
                     self._user_inputs[CONF_DIRECTION],
@@ -375,7 +372,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is None:
             try:
-                stops = get_stop_list(
+                stops = _gtfs_helper().get_stop_list(
                     self._pygtfs,
                     self._user_inputs[CONF_ROUTE],
                     self._user_inputs[CONF_DIRECTION],
@@ -446,13 +443,13 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             except Exception:
                 pass
         self._pygtfs = await self.hass.async_add_executor_job(
-            get_gtfs, self.hass, DEFAULT_PATH, data, False
+            _gtfs_helper().get_gtfs, self.hass, DEFAULT_PATH, data, False
         )
         _LOGGER.debug("Checkdata pygtfs: %s with data: %s", self._pygtfs, data)
         if self._pygtfs in ['no_data_file', 'no_zip_file', 'extracting'] :
             return self._pygtfs
         check_index = await self.hass.async_add_executor_job(
-                    check_datasource_index, self.hass, self._pygtfs, DEFAULT_PATH, data["file"]
+                    _gtfs_helper().check_datasource_index, self.hass, self._pygtfs, DEFAULT_PATH, data["file"]
                 )            
         return None
         
@@ -464,7 +461,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             except Exception:
                 pass
         self._pygtfs = await self.hass.async_add_executor_job(
-            get_gtfs, self.hass, DEFAULT_PATH, data, False
+            _gtfs_helper().get_gtfs, self.hass, DEFAULT_PATH, data, False
         )
         if self._pygtfs == "no_data_file":
             return "no_data_file"
@@ -482,11 +479,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         }
         # check and/or add indexes
         check_index = await self.hass.async_add_executor_job(
-                    check_datasource_index, self.hass, self._pygtfs, DEFAULT_PATH, data["file"]
+                    _gtfs_helper().check_datasource_index, self.hass, self._pygtfs, DEFAULT_PATH, data["file"]
                 )
         try:
             self._data["next_departure"] = await self.hass.async_add_executor_job(
-                get_next_departure, self.hass, self._data
+                _gtfs_helper().get_next_departure, self.hass, self._data
             )
         except Exception as ex:  # pylint: disable=broad-except
             _LOGGER.error(
@@ -619,10 +616,10 @@ async def _check_stop_list(self, data):
         except Exception:
             pass    
     self._pygtfs = await self.hass.async_add_executor_job(
-        get_gtfs, self.hass, DEFAULT_PATH, data, False
+        _gtfs_helper().get_gtfs, self.hass, DEFAULT_PATH, data, False
     )
     count_stops = await self.hass.async_add_executor_job(
-                get_local_stop_list, self.hass, self._pygtfs, data
+                _gtfs_helper().get_local_stop_list, self.hass, self._pygtfs, data
             )  
     if count_stops > DEFAULT_MAX_LOCAL_STOPS:
         _LOGGER.debug("Checkstops limit reached with: %s", count_stops)
