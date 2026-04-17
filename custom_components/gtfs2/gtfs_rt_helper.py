@@ -290,6 +290,19 @@ def get_gtfs_feed_entities(url: str, headers, label: str):
     return feed.get('entity')
 
 def get_next_services(self):
+    self._rt_debug = getattr(
+        self,
+        "_rt_debug",
+        {
+            "rt_debug_feed_entities": 0,
+            "rt_debug_trip_matches": 0,
+            "rt_debug_current_stop_matches": 0,
+            "rt_debug_target_stop_matches": 0,
+            "rt_debug_estimated_departures": 0,
+            "rt_debug_last_vehicle_stop_id": None,
+            "rt_debug_path": "get_next_services_init",
+        },
+    )
     self._stop = self._stop_id
     self._destination = self._destination_id
     self._route = self._route_id
@@ -370,6 +383,15 @@ def get_rt_route_trip_statuses(self):
     # in this case the trip still covers the direction
 
     departure_times = {}
+    self._rt_debug = {
+        "rt_debug_feed_entities": 0,
+        "rt_debug_trip_matches": 0,
+        "rt_debug_current_stop_matches": 0,
+        "rt_debug_target_stop_matches": 0,
+        "rt_debug_estimated_departures": 0,
+        "rt_debug_last_vehicle_stop_id": None,
+        "rt_debug_path": "get_rt_route_trip_statuses_start",
+    }
     
     if self._vehicle_position_url or self._trip_update_url:
         vehicle_positions = get_rt_vehicle_positions(self)
@@ -378,6 +400,7 @@ def get_rt_route_trip_statuses(self):
         url=self._trip_update_url, headers=self._headers, label="trip_data"
     )
     self._feed_entities = feed_entities
+    self._rt_debug["rt_debug_feed_entities"] = len(feed_entities or [])
     
     if not feed_entities:
         vehicle_feed_entities = get_gtfs_feed_entities(
@@ -386,14 +409,17 @@ def get_rt_route_trip_statuses(self):
             label="vehicle_positions",
         )
         if vehicle_feed_entities:
+            self._rt_debug["rt_debug_path"] = "vehicle_positions_fallback"
             _LOGGER.debug(
                 "Falling back to estimated departures derived from vehicle positions"
             )
             return build_departure_times_from_vehicle_positions(
                 self, vehicle_feed_entities
             )
+        self._rt_debug["rt_debug_path"] = "no_feed_entities"
         _LOGGER.debug("No proper RT feed entities: %s", feed_entities)
         return {}
+    self._rt_debug["rt_debug_path"] = "trip_updates"
 
     _LOGGER.debug("Search departure times for route: %s, trip: %s, type: %s, direction: %s, short_name: %s", self._route_id, self._trip_id, self._rt_group, self._direction, self._trip_short_name)
     for entity in feed_entities:
