@@ -9,10 +9,7 @@ from datetime import timedelta
 
 from .const import DOMAIN, PLATFORMS, DEFAULT_PATH, DEFAULT_PATH_RT, DEFAULT_REFRESH_INTERVAL
 from homeassistant.const import CONF_HOST
-from .coordinator import GTFSUpdateCoordinator, GTFSLocalStopUpdateCoordinator
 import voluptuous as vol
-from .gtfs_helper import get_gtfs, update_gtfs_local_stops, get_route_departures, get_trip_stops
-from .gtfs_rt_helper import get_gtfs_rt
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -79,6 +76,8 @@ async def async_migrate_entry(hass, config_entry: ConfigEntry) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up GTFS from a config entry."""
+    from .coordinator import GTFSUpdateCoordinator, GTFSLocalStopUpdateCoordinator
+
     hass.data.setdefault(DOMAIN, {})
    
     if entry.data.get('device_tracker_id',None):
@@ -110,6 +109,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 def setup(hass, config):
     """Setup the service component."""
+    from .gtfs_helper import (
+        get_gtfs,
+        update_gtfs_local_stops,
+        get_route_departures,
+        get_trip_stops,
+    )
+    from .gtfs_rt_helper import get_gtfs_rt
 
     def update_gtfs(call):
         """My GTFS Update service."""
