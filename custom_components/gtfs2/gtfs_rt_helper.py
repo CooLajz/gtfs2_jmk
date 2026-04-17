@@ -136,6 +136,21 @@ def get_trip_stop_schedule(schedule, trip_id, stop_id):
     return None
 
 
+def get_trip_route_direction(schedule, trip_id):
+    """Fetch route and direction for a trip from static GTFS data."""
+    sql = """
+        SELECT route_id, direction_id
+        FROM trips
+        WHERE trip_id = :trip_id
+        LIMIT 1
+        """
+    with schedule.engine.connect() as conn:
+        row = conn.exec_driver_sql(sql, {"trip_id": trip_id}).fetchone()
+        if row:
+            return row._asdict()
+    return None
+
+
 def build_departure_times_from_vehicle_positions(self, feed_entities):
     """Estimate departures from vehicle positions when TripUpdates are unavailable."""
     departure_times = {}
@@ -327,6 +342,7 @@ def get_next_services(self):
     self._trip = self._trip_id
     self._direction = self._direction
     self._trip_short_name = self._trip_short_name
+    self.vehicle_positions = []
     _LOGGER.debug("Configuration for RT route: %s, RT trip: %s, RT stop: %s, RT direction: %s, trip short name: %s", self._route, self._trip, self._stop, self._direction, self._trip_short_name)
     self._rt_group = "route"
     rt_departures = get_rt_route_trip_statuses(self)
@@ -565,6 +581,8 @@ def get_rt_vehicle_positions(self):
     if not feed_entities:
         return []
     geojson_body = []
+    vehicle_positions = []
+    trip_cache = {}
     geojson_element = {"geometry": {"coordinates":[],"type": "Point"}, "properties": {"id": "", "title": "", "trip_id": "", "route_id": "", "direction_id": "", "vehicle_id": "", "vehicle_label": ""}, "type": "Feature"}
     for entity in feed_entities:
         vehicle = entity["vehicle"]
@@ -572,28 +590,61 @@ def get_rt_vehicle_positions(self):
         if not vehicle["trip"]["trip_id"]:
             # Vehicle is not in service
             continue
+        trip_id = vehicle["trip"]["trip_id"]
+        if trip_id not in trip_cache:
+            trip_cache[trip_id] = get_trip_route_direction(self._data.get("schedule"), trip_id)
+        static_trip = trip_cache.get(trip_id) or {}
+        resolved_route_id = vehicle["trip"].get("route_id") or static_trip.get("route_id")
+        resolved_direction_id = str(
+            static_trip.get("direction_id")
+            if static_trip.get("direction_id") is not None
+            else vehicle["trip"].get("direction_id")
+        )
         if vehicle["trip"]["trip_id"] == self._trip_id: 
             _LOGGER.debug('Adding position for TripId: %s, RouteId: %s, DirectionId: %s, Lat: %s, Lon: %s, crc_trip_id: %s', vehicle["trip"]["trip_id"],vehicle["trip"]["route_id"],vehicle["trip"]["direction_id"],vehicle["position"]["latitude"],vehicle["position"]["longitude"], binascii.crc32((vehicle["trip"]["trip_id"]).encode('utf8')))  
             
         # add data if in the selected direction
-        if (str(self._route_id) == str(vehicle["trip"]["route_id"]) or str(vehicle["trip"]["trip_id"]) == str(self._trip_id)) and str(self._direction) == str(vehicle["trip"]["direction_id"]):
+        if (str(self._route_id) == str(resolved_route_id) or str(vehicle["trip"]["trip_id"]) == str(self._trip_id)) and str(self._direction) == str(resolved_direction_id):
             _LOGGER.debug("Found vehicle on route with attributes: %s", vehicle)
             _LOGGER.debug("crc : %s", binascii.crc32((vehicle["trip"]["trip_id"]).encode('utf8')))
+            vehicle_key = (
+                str(vehicle["vehicle"].get("id"))
+                or str(vehicle["vehicle"].get("label"))
+                or str(vehicle["trip"]["trip_id"])
+            )
+            vehicle_positions.append(
+                {
+                    "entity_key": vehicle_key,
+                    "trip_id": vehicle["trip"]["trip_id"],
+                    "route_id": str(resolved_route_id or self._route_id),
+                    "direction_id": str(resolved_direction_id),
+                    "vehicle_id": vehicle["vehicle"]["id"],
+                    "vehicle_label": vehicle["vehicle"]["label"],
+                    "stop_id": vehicle["stop_id"],
+                    "latitude": vehicle["position"]["latitude"],
+                    "longitude": vehicle["position"]["longitude"],
+                    "bearing": vehicle["position"]["bearing"],
+                    "speed": vehicle["position"]["speed"],
+                    "timestamp": int(vehicle["timestamp"]) if vehicle.get("timestamp") else None,
+                    "route_type": int(self._data.get("route_type")) if str(self._data.get("route_type", "")).isdigit() else None,
+                }
+            )
             geojson_element = {"geometry": {"coordinates":[],"type": "Point"}, "properties": {"id": "", "title": "", "trip_id": "", "route_id": "", "direction_id": "", "vehicle_id": "", "vehicle_label": ""}, "type": "Feature"}
             geojson_element["geometry"]["coordinates"] = []
             geojson_element["geometry"]["coordinates"].append(vehicle["position"]["longitude"])
             geojson_element["geometry"]["coordinates"].append(vehicle["position"]["latitude"])
-            geojson_element["properties"]["id"] = str(self._route_id) + "(" + str(vehicle["trip"]["direction_id"]) + ")" + str(binascii.crc32((vehicle["trip"]["trip_id"]).encode('utf8')))[-3:]
-            geojson_element["properties"]["title"] = str(self._route_id) + "(" + str(vehicle["trip"]["direction_id"]) + ")" + str(binascii.crc32((vehicle["trip"]["trip_id"]).encode('utf8')))[-3:] + "_" + self._icon.split(':')[1]
+            geojson_element["properties"]["id"] = str(resolved_route_id or self._route_id) + "(" + str(resolved_direction_id) + ")" + str(binascii.crc32((vehicle["trip"]["trip_id"]).encode('utf8')))[-3:]
+            geojson_element["properties"]["title"] = str(resolved_route_id or self._route_id) + "(" + str(resolved_direction_id) + ")" + str(binascii.crc32((vehicle["trip"]["trip_id"]).encode('utf8')))[-3:] + "_" + self._icon.split(':')[1]
             geojson_element["properties"]["trip_id"] = vehicle["trip"]["trip_id"]
-            geojson_element["properties"]["route_id"] = str(self._route_id)
-            geojson_element["properties"]["direction_id"] = vehicle["trip"]["direction_id"]
+            geojson_element["properties"]["route_id"] = str(resolved_route_id or self._route_id)
+            geojson_element["properties"]["direction_id"] = resolved_direction_id
             geojson_element["properties"]["vehicle_id"] = vehicle["vehicle"]["id"]
             geojson_element["properties"]["vehicle_label"] = vehicle["vehicle"]["label"]
             geojson_element["properties"][vehicle["trip"]["trip_id"]] = geojson_element["geometry"]["coordinates"]
             geojson_body.append(geojson_element)
     
     self.geojson = {"features": geojson_body, "type": "FeatureCollection"}
+    self.vehicle_positions = vehicle_positions
         
     _LOGGER.debug("Vehicle geojson: %s", json.dumps(self.geojson))
     self._route_dir = str(self._route_id) + "_" + str(self._direction)

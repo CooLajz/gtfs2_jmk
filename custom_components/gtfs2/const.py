@@ -23,7 +23,7 @@ CONF_DESTINATION = "destination"
 CONF_ORIGIN = "origin"
 CONF_TOMORROW = "include_tomorrow"
 
-PLATFORMS = [Platform.SENSOR]
+PLATFORMS = [Platform.SENSOR, Platform.DEVICE_TRACKER]
 
 # constants used in helpers
 ATTR_API_KEY_LOCATIONS = ["not_applicable","header","query_string"]
@@ -310,5 +310,4 @@ DEFAULT_DIRECTION = "0"
 DEFAULT_API_KEY_NAME = "api_key"
 
 TIME_STR_FORMAT = "%H:%M"
-
 

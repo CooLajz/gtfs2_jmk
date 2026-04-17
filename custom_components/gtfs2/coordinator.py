@@ -85,6 +85,7 @@ class GTFSUpdateCoordinator(DataUpdateCoordinator):
             "extracting": False,
             "next_departure": {},
             "next_departure_realtime_attr": {},
+            "vehicle_positions": [],
             "alert": {}
         }           
         
@@ -163,6 +164,8 @@ class GTFSUpdateCoordinator(DataUpdateCoordinator):
                     self._get_next_service = await self.hass.async_add_executor_job(get_next_services, self)
                     self._data["next_departure_realtime_attr"] = self._get_next_service
                     self._data["next_departure_realtime_attr"]["gtfs_rt_updated_at"] = dt_util.utcnow()
+                    self._data["vehicle_positions"] = getattr(self, "vehicle_positions", [])
+                    self._data["gtfs_rt_updated_at"] = dt_util.utcnow().isoformat()
                     self._data["alert"] = self._get_rt_alerts
                 except Exception as ex:  # pylint: disable=broad-except
                   _LOGGER.exception("Error getting gtfs realtime data, for origin: %s with error: %s", data["origin"], ex)
