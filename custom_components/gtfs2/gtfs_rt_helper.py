@@ -172,6 +172,8 @@ def build_departure_times_from_vehicle_positions(self, feed_entities):
             continue
 
         direction_id = trip.get("direction_id", self._direction)
+        if trip_id == self._trip_id or self._trip_id in trip_id:
+            direction_id = self._direction
         route_id = trip.get("route_id") or self._route_id
 
         departure_times.setdefault(route_id, {}).setdefault(direction_id, {}).setdefault(
