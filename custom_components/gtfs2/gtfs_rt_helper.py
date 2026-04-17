@@ -63,6 +63,22 @@ def due_in_minutes(timestamp):
     diff = timestamp - dt_util.now().replace(tzinfo=None)
     return int(diff.total_seconds() / 60)
 
+
+def parse_gtfs_realtime_feed(gtfs_realtime_data):
+    """Parse GTFS realtime protobuf payload."""
+    feed = gtfs_realtime_pb2.FeedMessage()
+    feed.ParseFromString(gtfs_realtime_data)
+    return feed
+
+
+def get_gtfs_feed_entity_counts(feed):
+    """Count the entity types available in a GTFS realtime feed."""
+    return {
+        "trip_updates": sum(entity.HasField("trip_update") for entity in feed.entity),
+        "vehicle_positions": sum(entity.HasField("vehicle") for entity in feed.entity),
+        "alerts": sum(entity.HasField("alert") for entity in feed.entity),
+    }
+
 def get_gtfs_feed_entities(url: str, headers, label: str):
     _LOGGER.debug(f"GTFS RT get_feed_entities for url: {url} , headers: {headers}, label: {label}")
     feed = gtfs_realtime_pb2.FeedMessage()  # type: ignore
@@ -88,12 +104,32 @@ def get_gtfs_feed_entities(url: str, headers, label: str):
         feed = json.loads(response.text)
     except ValueError as e:   
         _LOGGER.debug("GTFS RT data is not providing format json")
+        feed = parse_gtfs_realtime_feed(response.content)
+        feed_counts = get_gtfs_feed_entity_counts(feed)
+        _LOGGER.debug("GTFS RT feed entity counts for %s: %s", label, feed_counts)
         if label == "vehicle_positions":
+            if feed_counts["vehicle_positions"] == 0:
+                _LOGGER.warning(
+                    "GTFS RT URL %s did not contain VehiclePosition entities.", url
+                )
+                return []
             feed = convert_gtfs_realtime_positions_to_json(response.content)
         elif label == "trip_data":
+            if feed_counts["trip_updates"] == 0:
+                if feed_counts["vehicle_positions"] > 0:
+                    _LOGGER.warning(
+                        "GTFS RT trip update URL %s returned only VehiclePosition entities. "
+                        "This feed can be used for vehicle locations, but not realtime departures.",
+                        url,
+                    )
+                else:
+                    _LOGGER.warning(
+                        "GTFS RT trip update URL %s did not contain TripUpdate entities.",
+                        url,
+                    )
+                return []
             feed = convert_gtfs_realtime_to_json(response.content)
         else: # not yet converted to json
-            feed.ParseFromString(response.content)
             return feed.entity            
     
     return feed.get('entity')
@@ -178,7 +214,7 @@ def get_rt_route_trip_statuses(self):
 
     departure_times = {}
     
-    if self._vehicle_position_url:   
+    if self._vehicle_position_url or self._trip_update_url:
         vehicle_positions = get_rt_vehicle_positions(self)
 
     feed_entities = get_gtfs_feed_entities(
@@ -299,11 +335,20 @@ def get_rt_route_trip_statuses(self):
     return departure_times    
 
 def get_rt_vehicle_positions(self):
+    vehicle_positions_url = self._vehicle_position_url or self._trip_update_url
+    if not vehicle_positions_url:
+        return []
+    if not self._vehicle_position_url and self._trip_update_url:
+        _LOGGER.debug(
+            "No dedicated vehicle position URL configured, trying trip update URL as fallback"
+        )
     feed_entities = get_gtfs_feed_entities(
-        url=self._vehicle_position_url,
+        url=vehicle_positions_url,
         headers=self._headers,
         label="vehicle_positions",
     )
+    if not feed_entities:
+        return []
     geojson_body = []
     geojson_element = {"geometry": {"coordinates":[],"type": "Point"}, "properties": {"id": "", "title": "", "trip_id": "", "route_id": "", "direction_id": "", "vehicle_id": "", "vehicle_label": ""}, "type": "Feature"}
     for entity in feed_entities:
