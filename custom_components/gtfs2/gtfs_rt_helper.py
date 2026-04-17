@@ -61,7 +61,11 @@ from .const import (
 
 def due_in_minutes(timestamp):
     """Get the remaining minutes from now until a given datetime object."""
-    diff = timestamp - dt_util.now().replace(tzinfo=None)
+    if getattr(timestamp, "tzinfo", None) is not None:
+        now = dt_util.utcnow()
+    else:
+        now = dt_util.now().replace(tzinfo=None)
+    diff = timestamp - now
     return int(diff.total_seconds() / 60)
 
 
@@ -201,7 +205,7 @@ def build_departure_times_from_vehicle_positions(self, feed_entities):
             tzinfo=dt_util.get_time_zone("UTC")
         )
         self._rt_debug["rt_debug_estimated_departure"] = estimated_departure.isoformat()
-        if due_in_minutes(estimated_departure.replace(tzinfo=None)) < 0:
+        if due_in_minutes(estimated_departure) < 0:
             self._rt_debug["rt_debug_skip_reason"] = "estimated_departure_in_past"
             continue
 
