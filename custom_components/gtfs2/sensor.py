@@ -439,6 +439,9 @@ class GTFSDepartureSensor(CoordinatorEntity, SensorEntity):
         
         if self._departure_rt:
             _LOGGER.debug("next dep realtime attr: %s", self._departure_rt)
+            for key, value in self._departure_rt.items():
+                if str(key).startswith("rt_debug_"):
+                    self._attributes[key] = value
             # Add next departure realtime to the right level, only if populated
             if "gtfs_rt_updated_at" in self._departure_rt:
                 self._attributes["gtfs_rt_updated_at"] = self._departure_rt[ATTR_RT_UPDATED_AT]

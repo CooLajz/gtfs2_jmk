@@ -136,6 +136,14 @@ def build_departure_times_from_vehicle_positions(self, feed_entities):
     """Estimate departures from vehicle positions when TripUpdates are unavailable."""
     departure_times = {}
     schedule = self._data.get("schedule")
+    self._rt_debug = {
+        "rt_debug_feed_entities": len(feed_entities or []),
+        "rt_debug_trip_matches": 0,
+        "rt_debug_current_stop_matches": 0,
+        "rt_debug_target_stop_matches": 0,
+        "rt_debug_estimated_departures": 0,
+        "rt_debug_last_vehicle_stop_id": None,
+    }
     if not schedule:
         return {}
 
@@ -150,9 +158,15 @@ def build_departure_times_from_vehicle_positions(self, feed_entities):
             continue
         if trip_id != self._trip_id and self._trip_id not in trip_id:
             continue
+        self._rt_debug["rt_debug_trip_matches"] += 1
+        self._rt_debug["rt_debug_last_vehicle_stop_id"] = current_stop_id
 
         current_stop = get_trip_stop_schedule(schedule, trip_id, current_stop_id)
         target_stop = get_trip_stop_schedule(schedule, trip_id, self._stop_id)
+        if current_stop:
+            self._rt_debug["rt_debug_current_stop_matches"] += 1
+        if target_stop:
+            self._rt_debug["rt_debug_target_stop_matches"] += 1
         if not current_stop or not target_stop:
             continue
         if int(target_stop["stop_sequence"]) < int(current_stop["stop_sequence"]):
@@ -189,6 +203,7 @@ def build_departure_times_from_vehicle_positions(self, feed_entities):
         departure_times[route_id][direction_id][self._stop_id]["departures"].append(
             estimated_departure
         )
+        self._rt_debug["rt_debug_estimated_departures"] += 1
 
         scheduled_target_departure = self._data.get("next_departure", {}).get(
             "departure_time"
@@ -312,6 +327,8 @@ def get_next_services(self):
         ATTR_NEXT_RT: next_services,
         ATTR_NEXT_RT_DELAYS: next_delays                                        
     }
+    if hasattr(self, "_rt_debug"):
+        attrs.update(self._rt_debug)
     
     if len(next_services) > 0:
         attrs[ATTR_DUE_AT] = (
