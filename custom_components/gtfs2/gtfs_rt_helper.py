@@ -15,7 +15,6 @@ from homeassistant.helpers.entity import Entity
 from homeassistant.util import Throttle
 import binascii
 import base64
-from sqlalchemy.sql import text
 from .requests_testadapter import Resp
 
 _LOGGER = logging.getLogger(__name__)
@@ -89,17 +88,15 @@ def gtfs_time_to_seconds(time_string):
 
 def get_trip_stop_schedule(schedule, trip_id, stop_id):
     """Fetch scheduled stop time details for one stop on a trip."""
-    sql = text(
-        """
+    sql = """
         SELECT stop_id, stop_sequence, arrival_time, departure_time
         FROM stop_times
         WHERE trip_id = :trip_id AND stop_id = :stop_id
         ORDER BY stop_sequence
         LIMIT 1
         """
-    )
     with schedule.engine.connect() as conn:
-        row = conn.execute(
+        row = conn.exec_driver_sql(
             sql, {"trip_id": trip_id, "stop_id": stop_id}
         ).fetchone()
     return row._asdict() if row else None
