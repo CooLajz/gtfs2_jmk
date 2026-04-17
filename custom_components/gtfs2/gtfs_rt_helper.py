@@ -83,6 +83,11 @@ def get_gtfs_feed_entity_counts(feed):
 
 def gtfs_time_to_seconds(time_string):
     """Convert GTFS HH:MM:SS time strings, including >24h, to seconds."""
+    time_string = str(time_string).strip()
+    if " " in time_string:
+        time_string = time_string.split(" ")[-1]
+    if "T" in time_string:
+        time_string = time_string.split("T")[-1]
     hours, minutes, seconds = [int(part) for part in time_string.split(":")]
     return hours * 3600 + minutes * 60 + seconds
 
