@@ -143,6 +143,11 @@ def build_departure_times_from_vehicle_positions(self, feed_entities):
         "rt_debug_target_stop_matches": 0,
         "rt_debug_estimated_departures": 0,
         "rt_debug_last_vehicle_stop_id": None,
+        "rt_debug_current_stop_sequence": None,
+        "rt_debug_target_stop_sequence": None,
+        "rt_debug_scheduled_delta": None,
+        "rt_debug_estimated_departure": None,
+        "rt_debug_skip_reason": None,
     }
     if not schedule:
         return {}
@@ -168,8 +173,12 @@ def build_departure_times_from_vehicle_positions(self, feed_entities):
         if target_stop:
             self._rt_debug["rt_debug_target_stop_matches"] += 1
         if not current_stop or not target_stop:
+            self._rt_debug["rt_debug_skip_reason"] = "missing_stop_match"
             continue
+        self._rt_debug["rt_debug_current_stop_sequence"] = current_stop["stop_sequence"]
+        self._rt_debug["rt_debug_target_stop_sequence"] = target_stop["stop_sequence"]
         if int(target_stop["stop_sequence"]) < int(current_stop["stop_sequence"]):
+            self._rt_debug["rt_debug_skip_reason"] = "target_before_current"
             continue
 
         current_time_str = (
@@ -179,17 +188,21 @@ def build_departure_times_from_vehicle_positions(self, feed_entities):
             target_stop.get("departure_time") or target_stop.get("arrival_time")
         )
         if not current_time_str or not target_time_str:
+            self._rt_debug["rt_debug_skip_reason"] = "missing_schedule_time"
             continue
 
         scheduled_delta = (
             gtfs_time_to_seconds(target_time_str)
             - gtfs_time_to_seconds(current_time_str)
         )
+        self._rt_debug["rt_debug_scheduled_delta"] = scheduled_delta
         estimated_stop_time = int(vehicle_timestamp) + scheduled_delta
         estimated_departure = datetime.utcfromtimestamp(estimated_stop_time).replace(
             tzinfo=dt_util.get_time_zone("UTC")
         )
+        self._rt_debug["rt_debug_estimated_departure"] = estimated_departure.isoformat()
         if due_in_minutes(estimated_departure.replace(tzinfo=None)) < 0:
+            self._rt_debug["rt_debug_skip_reason"] = "estimated_departure_in_past"
             continue
 
         direction_id = trip.get("direction_id", self._direction)
@@ -204,6 +217,7 @@ def build_departure_times_from_vehicle_positions(self, feed_entities):
             estimated_departure
         )
         self._rt_debug["rt_debug_estimated_departures"] += 1
+        self._rt_debug["rt_debug_skip_reason"] = None
 
         scheduled_target_departure = self._data.get("next_departure", {}).get(
             "departure_time"
