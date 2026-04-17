@@ -1,6 +1,6 @@
 {
-  "domain": "gtfs2",
-  "name": "GTFS 2 (General Transit Feed Specification)",
+  "domain": "gtfs2-jmk",
+  "name": "GTFS 2 (General Transit Feed Specification) updated for JMK",
   "codeowners": [
     "@vingerha"
   ],
@@ -9,13 +9,13 @@
     "zone",
     "person"
   ],
-  "documentation": "https://github.com/vingerha/gtfs2/wiki",
+  "documentation": "https://github.com/CooLajz/gtfs2_jmk",
   "iot_class": "local_polling",
-  "issue_tracker": "https://github.com/vingerha/gtfs2/issues",
+  "issue_tracker": "https://github.com/CooLajz/gtfs2_jmk/issues",
   "requirements": [
     "pygtfs==0.1.9",
     "gtfs-realtime-bindings==1.0.0",
     "protobuf"
   ],
-  "version": "0.5.7"
+  "version": "0.0.1"
 }
