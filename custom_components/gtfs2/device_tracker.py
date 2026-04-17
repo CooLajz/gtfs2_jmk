@@ -70,7 +70,7 @@ class GTFSVehicleTracker(TrackerEntity):
         )
         self._vehicle_data: dict[str, Any] = {}
         self.async_on_remove(coordinator.async_add_listener(self._handle_coordinator_update))
-        self._handle_coordinator_update()
+        self._refresh_vehicle_data()
 
     @property
     def available(self) -> bool:
@@ -96,8 +96,7 @@ class GTFSVehicleTracker(TrackerEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         return self._attr_extra_state_attributes
 
-    @callback
-    def _handle_coordinator_update(self) -> None:
+    def _refresh_vehicle_data(self) -> None:
         vehicles = self.coordinator.data.get("vehicle_positions", []) if self.coordinator.data else []
         self._vehicle_data = next(
             (vehicle for vehicle in vehicles if str(vehicle.get("entity_key")) == self.vehicle_key),
@@ -119,4 +118,9 @@ class GTFSVehicleTracker(TrackerEntity):
                 "timestamp": self._vehicle_data.get("timestamp"),
                 "gtfs_rt_updated_at": self.coordinator.data.get("gtfs_rt_updated_at") if self.coordinator.data else None,
             }
-        self.async_write_ha_state()
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        self._refresh_vehicle_data()
+        if self.hass is not None:
+            self.async_write_ha_state()
