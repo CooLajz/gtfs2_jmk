@@ -15,6 +15,7 @@ from homeassistant.helpers.entity import Entity
 from homeassistant.util import Throttle
 import binascii
 import base64
+from sqlalchemy.sql import text
 from .requests_testadapter import Resp
 
 _LOGGER = logging.getLogger(__name__)
@@ -78,6 +79,116 @@ def get_gtfs_feed_entity_counts(feed):
         "vehicle_positions": sum(entity.HasField("vehicle") for entity in feed.entity),
         "alerts": sum(entity.HasField("alert") for entity in feed.entity),
     }
+
+
+def gtfs_time_to_seconds(time_string):
+    """Convert GTFS HH:MM:SS time strings, including >24h, to seconds."""
+    hours, minutes, seconds = [int(part) for part in time_string.split(":")]
+    return hours * 3600 + minutes * 60 + seconds
+
+
+def get_trip_stop_schedule(schedule, trip_id, stop_id):
+    """Fetch scheduled stop time details for one stop on a trip."""
+    sql = text(
+        """
+        SELECT stop_id, stop_sequence, arrival_time, departure_time
+        FROM stop_times
+        WHERE trip_id = :trip_id AND stop_id = :stop_id
+        ORDER BY stop_sequence
+        LIMIT 1
+        """
+    )
+    with schedule.engine.connect() as conn:
+        row = conn.execute(
+            sql, {"trip_id": trip_id, "stop_id": stop_id}
+        ).fetchone()
+    return row._asdict() if row else None
+
+
+def build_departure_times_from_vehicle_positions(self, feed_entities):
+    """Estimate departures from vehicle positions when TripUpdates are unavailable."""
+    departure_times = {}
+    schedule = self._data.get("schedule")
+    if not schedule:
+        return {}
+
+    for entity in feed_entities:
+        vehicle = entity.get("vehicle", {})
+        trip = vehicle.get("trip", {})
+        trip_id = trip.get("trip_id")
+        current_stop_id = vehicle.get("stop_id")
+        vehicle_timestamp = vehicle.get("timestamp")
+
+        if not trip_id or not current_stop_id or not vehicle_timestamp:
+            continue
+        if trip_id != self._trip_id and self._trip_id not in trip_id:
+            continue
+
+        current_stop = get_trip_stop_schedule(schedule, trip_id, current_stop_id)
+        target_stop = get_trip_stop_schedule(schedule, trip_id, self._stop_id)
+        if not current_stop or not target_stop:
+            continue
+        if int(target_stop["stop_sequence"]) < int(current_stop["stop_sequence"]):
+            continue
+
+        current_time_str = (
+            current_stop.get("departure_time") or current_stop.get("arrival_time")
+        )
+        target_time_str = (
+            target_stop.get("departure_time") or target_stop.get("arrival_time")
+        )
+        if not current_time_str or not target_time_str:
+            continue
+
+        scheduled_delta = (
+            gtfs_time_to_seconds(target_time_str)
+            - gtfs_time_to_seconds(current_time_str)
+        )
+        estimated_stop_time = int(vehicle_timestamp) + scheduled_delta
+        estimated_departure = datetime.utcfromtimestamp(estimated_stop_time).replace(
+            tzinfo=dt_util.get_time_zone("UTC")
+        )
+        if due_in_minutes(estimated_departure.replace(tzinfo=None)) < 0:
+            continue
+
+        direction_id = trip.get("direction_id", self._direction)
+        route_id = trip.get("route_id") or self._route_id
+
+        departure_times.setdefault(route_id, {}).setdefault(direction_id, {}).setdefault(
+            self._stop_id, {"departures": [], "delays": []}
+        )
+        departure_times[route_id][direction_id][self._stop_id]["departures"].append(
+            estimated_departure
+        )
+
+        scheduled_target_departure = self._data.get("next_departure", {}).get(
+            "departure_time"
+        )
+        if scheduled_target_departure is not None:
+            delay = int(
+                (
+                    estimated_departure
+                    - dt_util.as_utc(scheduled_target_departure)
+                ).total_seconds()
+            )
+        else:
+            delay = 0
+        departure_times[route_id][direction_id][self._stop_id]["delays"].append(delay)
+
+    for route_id, directions in departure_times.items():
+        for direction_id, stops in directions.items():
+            for stop_id, stop_data in stops.items():
+                combined = sorted(
+                    zip(stop_data["departures"], stop_data["delays"]),
+                    key=lambda item: item[0],
+                )
+                stop_data["departures"] = [item[0] for item in combined]
+                stop_data["delays"] = [item[1] for item in combined]
+
+    _LOGGER.debug(
+        "Estimated departure times from vehicle positions: %s", departure_times
+    )
+    return departure_times
 
 def get_gtfs_feed_entities(url: str, headers, label: str):
     _LOGGER.debug(f"GTFS RT get_feed_entities for url: {url} , headers: {headers}, label: {label}")
@@ -223,6 +334,18 @@ def get_rt_route_trip_statuses(self):
     self._feed_entities = feed_entities
     
     if not feed_entities:
+        vehicle_feed_entities = get_gtfs_feed_entities(
+            url=self._vehicle_position_url or self._trip_update_url,
+            headers=self._headers,
+            label="vehicle_positions",
+        )
+        if vehicle_feed_entities:
+            _LOGGER.debug(
+                "Falling back to estimated departures derived from vehicle positions"
+            )
+            return build_departure_times_from_vehicle_positions(
+                self, vehicle_feed_entities
+            )
         _LOGGER.debug("No proper RT feed entities: %s", feed_entities)
         return {}
 
