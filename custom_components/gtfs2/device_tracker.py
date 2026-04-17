@@ -69,8 +69,15 @@ class GTFSVehicleTracker(TrackerEntity):
             model="Realtime vehicle",
         )
         self._vehicle_data: dict[str, Any] = {}
-        self.async_on_remove(coordinator.async_add_listener(self._handle_coordinator_update))
         self._refresh_vehicle_data()
+
+    async def async_added_to_hass(self) -> None:
+        """Register coordinator listener only after the entity is attached."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self._handle_coordinator_update)
+        )
+        self._handle_coordinator_update()
 
     @property
     def available(self) -> bool:
