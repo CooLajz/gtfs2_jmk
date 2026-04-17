@@ -2,6 +2,7 @@ import logging
 from datetime import datetime, timedelta
 import json
 import os
+import re
 
 import homeassistant.helpers.config_validation as cv
 import homeassistant.util.dt as dt_util
@@ -86,6 +87,25 @@ def gtfs_time_to_seconds(time_string):
     return hours * 3600 + minutes * 60 + seconds
 
 
+def normalize_stop_id(stop_id):
+    """Normalize provider-specific stop ids such as U01146Z03 -> U1146Z3."""
+    if not stop_id:
+        return stop_id
+    match = re.fullmatch(r"([A-Za-z]+)0*(\d+)([A-Za-z]+)0*(\d+)", str(stop_id))
+    if not match:
+        return str(stop_id)
+    return f"{match.group(1)}{int(match.group(2))}{match.group(3)}{int(match.group(4))}"
+
+
+def stop_id_candidates(stop_id):
+    """Return exact and normalized stop-id variants for matching."""
+    candidates = []
+    for value in [stop_id, normalize_stop_id(stop_id)]:
+        if value and value not in candidates:
+            candidates.append(value)
+    return candidates
+
+
 def get_trip_stop_schedule(schedule, trip_id, stop_id):
     """Fetch scheduled stop time details for one stop on a trip."""
     sql = """
@@ -96,10 +116,13 @@ def get_trip_stop_schedule(schedule, trip_id, stop_id):
         LIMIT 1
         """
     with schedule.engine.connect() as conn:
-        row = conn.exec_driver_sql(
-            sql, {"trip_id": trip_id, "stop_id": stop_id}
-        ).fetchone()
-    return row._asdict() if row else None
+        for candidate in stop_id_candidates(stop_id):
+            row = conn.exec_driver_sql(
+                sql, {"trip_id": trip_id, "stop_id": candidate}
+            ).fetchone()
+            if row:
+                return row._asdict()
+    return None
 
 
 def build_departure_times_from_vehicle_positions(self, feed_entities):
@@ -391,12 +414,14 @@ def get_rt_route_trip_statuses(self):
                 for stop in entity["trip_update"]["stop_time_update"]:
                     stop_id = stop["stop_id"]
                     stop_sequence = stop["stop_sequence"]
-                    if stop_id == self._stop_id or (stop_id == "" and stop_sequence == self._stop_sequence):
+                    if normalize_stop_id(stop_id) == normalize_stop_id(self._stop_id) or (stop_id == "" and stop_sequence == self._stop_sequence):
                         _LOGGER.debug("Stop found: %s", stop)
                         # if the data does not contain a stop_id but only a stop_sequence, assume stop_id being the correct stop based on sequence
                         # this does not have to be always correct but best-guess
                         if stop_id == "":
                             stop_id = self._stop_id
+                        else:
+                            stop_id = normalize_stop_id(self._stop_id)
                         
                         if self._route_id not in departure_times:
                             departure_times[self._route_id] = {}
