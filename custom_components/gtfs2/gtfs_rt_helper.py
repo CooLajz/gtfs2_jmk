@@ -88,7 +88,12 @@ def gtfs_time_to_seconds(time_string):
         time_string = time_string.split(" ")[-1]
     if "T" in time_string:
         time_string = time_string.split("T")[-1]
-    hours, minutes, seconds = [int(part) for part in time_string.split(":")]
+    parts = time_string.split(":")
+    if len(parts) != 3:
+        raise ValueError(f"Unsupported GTFS time format: {time_string}")
+    hours = int(parts[0])
+    minutes = int(parts[1])
+    seconds = int(float(parts[2]))
     return hours * 3600 + minutes * 60 + seconds
 
 
