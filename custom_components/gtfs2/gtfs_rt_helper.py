@@ -613,7 +613,7 @@ def get_rt_vehicle_positions(self):
     geojson_body = []
     vehicle_positions = []
     trip_cache = {}
-    seen_vehicle_keys = set()
+    seen_vehicle_labels = set()
     geojson_element = {"geometry": {"coordinates":[],"type": "Point"}, "properties": {"id": "", "title": "", "trip_id": "", "route_id": "", "direction_id": "", "vehicle_id": "", "vehicle_label": ""}, "type": "Feature"}
     for entity in feed_entities:
         vehicle = entity["vehicle"]
@@ -641,19 +641,24 @@ def get_rt_vehicle_positions(self):
         if (str(self._route_id) == str(resolved_route_id) or str(vehicle["trip"]["trip_id"]) == str(self._trip_id)) and str(self._direction) == str(resolved_direction_id):
             _LOGGER.debug("Found vehicle on route with attributes: %s", vehicle)
             _LOGGER.debug("crc : %s", binascii.crc32((vehicle["trip"]["trip_id"]).encode('utf8')))
-            vehicle_key = (
+            dedupe_key = (
                 str(vehicle["vehicle"].get("label"))
                 or str(vehicle["vehicle"].get("id"))
                 or str(vehicle["trip"]["trip_id"])
             )
-            if vehicle_key in seen_vehicle_keys:
+            vehicle_key = (
+                str(vehicle["vehicle"].get("id"))
+                or str(vehicle["vehicle"].get("label"))
+                or str(vehicle["trip"]["trip_id"])
+            )
+            if dedupe_key in seen_vehicle_labels:
                 _LOGGER.debug(
-                    "Skipping duplicate vehicle position for key %s on trip %s",
-                    vehicle_key,
+                    "Skipping duplicate vehicle position for label %s on trip %s",
+                    dedupe_key,
                     vehicle["trip"]["trip_id"],
                 )
                 continue
-            seen_vehicle_keys.add(vehicle_key)
+            seen_vehicle_labels.add(dedupe_key)
             vehicle_positions.append(
                 {
                     "entity_key": vehicle_key,

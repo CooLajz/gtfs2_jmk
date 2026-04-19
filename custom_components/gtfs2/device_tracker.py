@@ -134,7 +134,7 @@ async def async_setup_entry(
 class GTFSVehicleTracker(TrackerEntity):
     """Device tracker for one GTFS realtime vehicle."""
 
-    _attr_has_entity_name = True
+    _attr_has_entity_name = False
 
     def __init__(
         self,
@@ -150,7 +150,7 @@ class GTFSVehicleTracker(TrackerEntity):
         self._attr_icon = ICON
         self._attr_extra_state_attributes: dict[str, Any] = {}
         self._attr_device_info = DeviceInfo(
-            name=vehicle_key,
+            name=f"GTFS Vehicle {vehicle_key}",
             entry_type=DeviceEntryType.SERVICE,
             identifiers={(DOMAIN, f"vehicle_{config_entry.entry_id}_{vehicle_key}")},
             manufacturer="GTFS",
@@ -213,7 +213,7 @@ class GTFSVehicleTracker(TrackerEntity):
                 fallback_name,
             )
             self._attr_device_info = DeviceInfo(
-                name=self._attr_name,
+                name=f"GTFS Vehicle {self.vehicle_key}",
                 entry_type=DeviceEntryType.SERVICE,
                 identifiers={(DOMAIN, f"vehicle_{self.config_entry.entry_id}_{self.vehicle_key}")},
                 manufacturer="GTFS",
