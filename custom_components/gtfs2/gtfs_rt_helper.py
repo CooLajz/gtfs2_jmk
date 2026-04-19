@@ -137,11 +137,12 @@ def get_trip_stop_schedule(schedule, trip_id, stop_id):
 
 
 def get_trip_route_direction(schedule, trip_id):
-    """Fetch route and direction for a trip from static GTFS data."""
+    """Fetch route metadata and direction for a trip from static GTFS data."""
     sql = """
-        SELECT route_id, direction_id
-        FROM trips
-        WHERE trip_id = :trip_id
+        SELECT t.route_id, t.direction_id, r.route_short_name, r.route_type
+        FROM trips t
+        LEFT JOIN routes r ON r.route_id = t.route_id
+        WHERE t.trip_id = :trip_id
         LIMIT 1
         """
     with schedule.engine.connect() as conn:
@@ -612,6 +613,7 @@ def get_rt_vehicle_positions(self):
     geojson_body = []
     vehicle_positions = []
     trip_cache = {}
+    seen_vehicle_keys = set()
     geojson_element = {"geometry": {"coordinates":[],"type": "Point"}, "properties": {"id": "", "title": "", "trip_id": "", "route_id": "", "direction_id": "", "vehicle_id": "", "vehicle_label": ""}, "type": "Feature"}
     for entity in feed_entities:
         vehicle = entity["vehicle"]
@@ -640,15 +642,24 @@ def get_rt_vehicle_positions(self):
             _LOGGER.debug("Found vehicle on route with attributes: %s", vehicle)
             _LOGGER.debug("crc : %s", binascii.crc32((vehicle["trip"]["trip_id"]).encode('utf8')))
             vehicle_key = (
-                str(vehicle["vehicle"].get("id"))
-                or str(vehicle["vehicle"].get("label"))
+                str(vehicle["vehicle"].get("label"))
+                or str(vehicle["vehicle"].get("id"))
                 or str(vehicle["trip"]["trip_id"])
             )
+            if vehicle_key in seen_vehicle_keys:
+                _LOGGER.debug(
+                    "Skipping duplicate vehicle position for key %s on trip %s",
+                    vehicle_key,
+                    vehicle["trip"]["trip_id"],
+                )
+                continue
+            seen_vehicle_keys.add(vehicle_key)
             vehicle_positions.append(
                 {
                     "entity_key": vehicle_key,
                     "trip_id": vehicle["trip"]["trip_id"],
                     "route_id": str(resolved_route_id or self._route_id),
+                    "route_short_name": static_trip.get("route_short_name") or resolved_route_id or self._route_id,
                     "direction_id": str(resolved_direction_id),
                     "vehicle_id": vehicle["vehicle"]["id"],
                     "vehicle_label": vehicle["vehicle"]["label"],
@@ -662,7 +673,7 @@ def get_rt_vehicle_positions(self):
                     "bearing": vehicle["position"]["bearing"],
                     "speed": vehicle["position"]["speed"],
                     "timestamp": int(vehicle["timestamp"]) if vehicle.get("timestamp") else None,
-                    "route_type": int(self._data.get("route_type")) if str(self._data.get("route_type", "")).isdigit() else None,
+                    "route_type": static_trip.get("route_type") if static_trip.get("route_type") is not None else (int(self._data.get("route_type")) if str(self._data.get("route_type", "")).isdigit() else None),
                 }
             )
             geojson_element = {"geometry": {"coordinates":[],"type": "Point"}, "properties": {"id": "", "title": "", "trip_id": "", "route_id": "", "direction_id": "", "vehicle_id": "", "vehicle_label": ""}, "type": "Feature"}

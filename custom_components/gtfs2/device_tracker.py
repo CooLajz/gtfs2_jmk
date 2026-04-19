@@ -17,6 +17,26 @@ from .coordinator import GTFSUpdateCoordinator
 STALE_REFRESHES_BEFORE_PRUNE = 3
 
 
+def _vehicle_display_name(
+    route_type: int | None, route_short_name: str | None, fallback: str
+) -> str:
+    """Build a readable tracker name such as Tramvaj 8 or Autobus 501."""
+    vehicle_type_name = {
+        0: "Tramvaj",
+        1: "Metro",
+        2: "Vlak",
+        3: "Autobus",
+        4: "Lod",
+        5: "Lanovka",
+        6: "Lanovka",
+        7: "Lanovka",
+    }.get(route_type, "Spoj")
+    line_name = str(route_short_name or "").strip()
+    if line_name:
+        return f"{vehicle_type_name} {line_name}"
+    return fallback
+
+
 def _prune_orphaned_registry_entities(
     entity_registry: er.EntityRegistry,
     config_entry: ConfigEntry,
@@ -130,7 +150,7 @@ class GTFSVehicleTracker(TrackerEntity):
         self._attr_icon = ICON
         self._attr_extra_state_attributes: dict[str, Any] = {}
         self._attr_device_info = DeviceInfo(
-            name=f"GTFS Vehicle {vehicle_key}",
+            name=vehicle_key,
             entry_type=DeviceEntryType.SERVICE,
             identifiers={(DOMAIN, f"vehicle_{config_entry.entry_id}_{vehicle_key}")},
             manufacturer="GTFS",
@@ -182,10 +202,27 @@ class GTFSVehicleTracker(TrackerEntity):
             self._missing_refreshes = 0
             route_type = self._vehicle_data.get("route_type")
             self._attr_icon = ICONS.get(route_type, ICON)
-            self._attr_name = self._vehicle_data.get("vehicle_label") or self._vehicle_data.get("trip_id") or self.vehicle_key
+            fallback_name = (
+                self._vehicle_data.get("vehicle_label")
+                or self._vehicle_data.get("trip_id")
+                or self.vehicle_key
+            )
+            self._attr_name = _vehicle_display_name(
+                route_type,
+                self._vehicle_data.get("route_short_name"),
+                fallback_name,
+            )
+            self._attr_device_info = DeviceInfo(
+                name=self._attr_name,
+                entry_type=DeviceEntryType.SERVICE,
+                identifiers={(DOMAIN, f"vehicle_{self.config_entry.entry_id}_{self.vehicle_key}")},
+                manufacturer="GTFS",
+                model="Realtime vehicle",
+            )
             self._attr_extra_state_attributes = {
                 "trip_id": self._vehicle_data.get("trip_id"),
                 "route_id": self._vehicle_data.get("route_id"),
+                "route_short_name": self._vehicle_data.get("route_short_name"),
                 "direction_id": self._vehicle_data.get("direction_id"),
                 "vehicle_id": self._vehicle_data.get("vehicle_id"),
                 "vehicle_label": self._vehicle_data.get("vehicle_label"),
