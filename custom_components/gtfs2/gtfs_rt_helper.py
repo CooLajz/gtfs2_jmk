@@ -181,6 +181,22 @@ def get_trip_boundaries(schedule, trip_id):
     return None
 
 
+def get_stop_geojson_data(schedule, stop_id):
+    """Fetch stop metadata needed for GeoJSON map markers."""
+    sql = """
+        SELECT stop_id, stop_name, stop_lat, stop_lon
+        FROM stops
+        WHERE stop_id = :stop_id
+        LIMIT 1
+        """
+    with schedule.engine.connect() as conn:
+        for candidate in stop_id_candidates(stop_id):
+            row = conn.exec_driver_sql(sql, {"stop_id": candidate}).fetchone()
+            if row:
+                return row._asdict()
+    return None
+
+
 def build_departure_times_from_vehicle_positions(self, feed_entities):
     """Estimate departures from vehicle positions when TripUpdates are unavailable."""
     departure_times = {}
@@ -703,7 +719,36 @@ def get_rt_vehicle_positions(self):
             geojson_element["properties"]["vehicle_label"] = vehicle["vehicle"]["label"]
             geojson_element["properties"][vehicle["trip"]["trip_id"]] = geojson_element["geometry"]["coordinates"]
             geojson_body.append(geojson_element)
-    
+
+    for stop_role, stop_id in (
+        ("origin_stop", self._stop_id),
+        ("destination_stop", self._destination_id),
+    ):
+        stop_data = get_stop_geojson_data(self._data.get("schedule"), stop_id)
+        if not stop_data:
+            continue
+        geojson_body.append(
+            {
+                "geometry": {
+                    "coordinates": [
+                        float(stop_data["stop_lon"]),
+                        float(stop_data["stop_lat"]),
+                    ],
+                    "type": "Point",
+                },
+                "properties": {
+                    "id": f"{stop_role}_{stop_data['stop_id']}",
+                    "title": stop_data["stop_name"],
+                    "stop_id": stop_data["stop_id"],
+                    "stop_name": stop_data["stop_name"],
+                    "marker_type": stop_role,
+                    "route_id": str(self._route_id),
+                    "direction_id": str(self._direction),
+                },
+                "type": "Feature",
+            }
+        )
+
     self.geojson = {"features": geojson_body, "type": "FeatureCollection"}
     self.vehicle_positions = vehicle_positions
         
