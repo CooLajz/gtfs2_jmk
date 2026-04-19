@@ -134,7 +134,7 @@ async def async_setup_entry(
 class GTFSVehicleTracker(TrackerEntity):
     """Device tracker for one GTFS realtime vehicle."""
 
-    _attr_has_entity_name = False
+    _attr_has_entity_name = True
 
     def __init__(
         self,
@@ -146,7 +146,7 @@ class GTFSVehicleTracker(TrackerEntity):
         self.config_entry = config_entry
         self.vehicle_key = vehicle_key
         self._attr_unique_id = f"{config_entry.entry_id}_vehicle_{vehicle_key}"
-        self._attr_name = vehicle_key
+        self._attr_name = None
         self._attr_icon = ICON
         self._attr_extra_state_attributes: dict[str, Any] = {}
         self._attr_device_info = DeviceInfo(
@@ -208,17 +208,16 @@ class GTFSVehicleTracker(TrackerEntity):
                 or self.vehicle_key
             )
             self._attr_name = _vehicle_display_name(
-                route_type,
-                self._vehicle_data.get("route_short_name"),
-                fallback_name,
+                route_type, self._vehicle_data.get("route_short_name"), fallback_name
             )
             self._attr_device_info = DeviceInfo(
-                name=f"GTFS Vehicle {self.vehicle_key}",
+                name=self._attr_name,
                 entry_type=DeviceEntryType.SERVICE,
                 identifiers={(DOMAIN, f"vehicle_{self.config_entry.entry_id}_{self.vehicle_key}")},
                 manufacturer="GTFS",
                 model="Realtime vehicle",
             )
+            self._attr_name = None
             self._attr_extra_state_attributes = {
                 "trip_id": self._vehicle_data.get("trip_id"),
                 "route_id": self._vehicle_data.get("route_id"),
