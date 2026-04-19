@@ -583,6 +583,15 @@ def get_rt_vehicle_positions(self):
     geojson_body = []
     vehicle_positions = []
     trip_cache = {}
+    allowed_trip_ids = {
+        str(trip_id)
+        for trip_id in self._data.get("next_departure", {}).get(
+            "next_departures_trip_id", []
+        )
+        if trip_id is not None
+    }
+    if self._trip_id is not None:
+        allowed_trip_ids.add(str(self._trip_id))
     geojson_element = {"geometry": {"coordinates":[],"type": "Point"}, "properties": {"id": "", "title": "", "trip_id": "", "route_id": "", "direction_id": "", "vehicle_id": "", "vehicle_label": ""}, "type": "Feature"}
     for entity in feed_entities:
         vehicle = entity["vehicle"]
@@ -591,6 +600,8 @@ def get_rt_vehicle_positions(self):
             # Vehicle is not in service
             continue
         trip_id = vehicle["trip"]["trip_id"]
+        if allowed_trip_ids and str(trip_id) not in allowed_trip_ids:
+            continue
         if trip_id not in trip_cache:
             trip_cache[trip_id] = get_trip_route_direction(self._data.get("schedule"), trip_id)
         static_trip = trip_cache.get(trip_id) or {}
