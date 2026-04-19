@@ -249,6 +249,18 @@ def build_departure_times_from_vehicle_positions(self, feed_entities):
         estimated_departure = datetime.utcfromtimestamp(estimated_stop_time).replace(
             tzinfo=dt_util.get_time_zone("UTC")
         )
+        scheduled_target_departure = self._data.get("next_departure", {}).get(
+            "departure_time"
+        )
+        # Vehicle-position feeds often report a bus already standing at the origin
+        # stop well before the scheduled departure. In that case, keep the planned
+        # departure instead of treating the vehicle timestamp as an immediate departure.
+        if (
+            int(target_stop["stop_sequence"]) == int(current_stop["stop_sequence"])
+            and scheduled_target_departure is not None
+            and scheduled_target_departure > estimated_departure
+        ):
+            estimated_departure = dt_util.as_utc(scheduled_target_departure)
         self._rt_debug["rt_debug_estimated_departure"] = estimated_departure.isoformat()
         if due_in_minutes(estimated_departure) < 0:
             self._rt_debug["rt_debug_skip_reason"] = "estimated_departure_in_past"
@@ -268,9 +280,6 @@ def build_departure_times_from_vehicle_positions(self, feed_entities):
         self._rt_debug["rt_debug_estimated_departures"] += 1
         self._rt_debug["rt_debug_skip_reason"] = None
 
-        scheduled_target_departure = self._data.get("next_departure", {}).get(
-            "departure_time"
-        )
         if scheduled_target_departure is not None:
             delay = int(
                 (
