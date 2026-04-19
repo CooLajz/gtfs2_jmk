@@ -6,11 +6,14 @@ from homeassistant.components.device_tracker import SourceType
 from homeassistant.components.device_tracker.config_entry import TrackerEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, ICON, ICONS
 from .coordinator import GTFSUpdateCoordinator
+
+STALE_REFRESHES_BEFORE_PRUNE = 3
 
 
 async def async_setup_entry(
@@ -24,10 +27,28 @@ async def async_setup_entry(
     ]
 
     entities: dict[str, GTFSVehicleTracker] = {}
+    entity_registry = er.async_get(hass)
 
     @callback
     def sync_entities() -> None:
         vehicles = coordinator.data.get("vehicle_positions", []) if coordinator.data else []
+        current_keys = {
+            str(vehicle.get("entity_key") or vehicle.get("vehicle_id") or vehicle.get("trip_id"))
+            for vehicle in vehicles
+            if vehicle.get("entity_key") or vehicle.get("vehicle_id") or vehicle.get("trip_id")
+        }
+
+        for existing_key, tracker in list(entities.items()):
+            if existing_key in current_keys:
+                tracker.mark_present()
+                continue
+
+            tracker.mark_missing()
+            if tracker.should_prune():
+                if tracker.entity_id:
+                    entity_registry.async_remove(tracker.entity_id)
+                entities.pop(existing_key, None)
+
         new_entities = []
         for vehicle in vehicles:
             vehicle_key = str(vehicle.get("entity_key") or vehicle.get("vehicle_id") or vehicle.get("trip_id"))
@@ -69,6 +90,7 @@ class GTFSVehicleTracker(TrackerEntity):
             model="Realtime vehicle",
         )
         self._vehicle_data: dict[str, Any] = {}
+        self._missing_refreshes = 0
         self._refresh_vehicle_data()
 
     async def async_added_to_hass(self) -> None:
@@ -110,6 +132,7 @@ class GTFSVehicleTracker(TrackerEntity):
             {},
         )
         if self._vehicle_data:
+            self._missing_refreshes = 0
             route_type = self._vehicle_data.get("route_type")
             self._attr_icon = ICONS.get(route_type, ICON)
             self._attr_name = self._vehicle_data.get("vehicle_label") or self._vehicle_data.get("trip_id") or self.vehicle_key
@@ -125,6 +148,24 @@ class GTFSVehicleTracker(TrackerEntity):
                 "timestamp": self._vehicle_data.get("timestamp"),
                 "gtfs_rt_updated_at": self.coordinator.data.get("gtfs_rt_updated_at") if self.coordinator.data else None,
             }
+        else:
+            self._attr_extra_state_attributes = {}
+
+    def mark_present(self) -> None:
+        """Reset stale tracking for a vehicle still present in the latest snapshot."""
+        self._missing_refreshes = 0
+
+    def mark_missing(self) -> None:
+        """Mark a vehicle as temporarily missing from the latest snapshot."""
+        self._missing_refreshes += 1
+        self._vehicle_data = {}
+        self._attr_extra_state_attributes = {}
+        if self.hass is not None:
+            self.async_write_ha_state()
+
+    def should_prune(self) -> bool:
+        """Remove trackers that stayed absent across multiple refreshes."""
+        return self._missing_refreshes >= STALE_REFRESHES_BEFORE_PRUNE
 
     @callback
     def _handle_coordinator_update(self) -> None:
