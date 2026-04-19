@@ -151,6 +151,35 @@ def get_trip_route_direction(schedule, trip_id):
     return None
 
 
+def get_trip_boundaries(schedule, trip_id):
+    """Fetch first and last scheduled stops for a trip."""
+    sql = """
+        SELECT
+            first_stop.stop_id AS first_stop_id,
+            first_stop.stop_name AS first_stop_name,
+            last_stop.stop_id AS last_stop_id,
+            last_stop.stop_name AS last_stop_name
+        FROM trips t
+        JOIN stop_times first_st ON first_st.trip_id = t.trip_id
+        JOIN stops first_stop ON first_stop.stop_id = first_st.stop_id
+        JOIN stop_times last_st ON last_st.trip_id = t.trip_id
+        JOIN stops last_stop ON last_stop.stop_id = last_st.stop_id
+        WHERE t.trip_id = :trip_id
+          AND first_st.stop_sequence = (
+              SELECT MIN(stop_sequence) FROM stop_times WHERE trip_id = :trip_id
+          )
+          AND last_st.stop_sequence = (
+              SELECT MAX(stop_sequence) FROM stop_times WHERE trip_id = :trip_id
+          )
+        LIMIT 1
+        """
+    with schedule.engine.connect() as conn:
+        row = conn.exec_driver_sql(sql, {"trip_id": trip_id}).fetchone()
+        if row:
+            return row._asdict()
+    return None
+
+
 def build_departure_times_from_vehicle_positions(self, feed_entities):
     """Estimate departures from vehicle positions when TripUpdates are unavailable."""
     departure_times = {}
@@ -583,15 +612,6 @@ def get_rt_vehicle_positions(self):
     geojson_body = []
     vehicle_positions = []
     trip_cache = {}
-    allowed_trip_ids = {
-        str(trip_id)
-        for trip_id in self._data.get("next_departure", {}).get(
-            "next_departures_trip_id", []
-        )
-        if trip_id is not None
-    }
-    if self._trip_id is not None:
-        allowed_trip_ids.add(str(self._trip_id))
     geojson_element = {"geometry": {"coordinates":[],"type": "Point"}, "properties": {"id": "", "title": "", "trip_id": "", "route_id": "", "direction_id": "", "vehicle_id": "", "vehicle_label": ""}, "type": "Feature"}
     for entity in feed_entities:
         vehicle = entity["vehicle"]
@@ -600,10 +620,11 @@ def get_rt_vehicle_positions(self):
             # Vehicle is not in service
             continue
         trip_id = vehicle["trip"]["trip_id"]
-        if allowed_trip_ids and str(trip_id) not in allowed_trip_ids:
-            continue
         if trip_id not in trip_cache:
-            trip_cache[trip_id] = get_trip_route_direction(self._data.get("schedule"), trip_id)
+            trip_cache[trip_id] = {
+                **(get_trip_route_direction(self._data.get("schedule"), trip_id) or {}),
+                **(get_trip_boundaries(self._data.get("schedule"), trip_id) or {}),
+            }
         static_trip = trip_cache.get(trip_id) or {}
         resolved_route_id = vehicle["trip"].get("route_id") or static_trip.get("route_id")
         resolved_direction_id = str(
@@ -632,6 +653,10 @@ def get_rt_vehicle_positions(self):
                     "vehicle_id": vehicle["vehicle"]["id"],
                     "vehicle_label": vehicle["vehicle"]["label"],
                     "stop_id": vehicle["stop_id"],
+                    "first_stop_id": static_trip.get("first_stop_id"),
+                    "first_stop_name": static_trip.get("first_stop_name"),
+                    "last_stop_id": static_trip.get("last_stop_id"),
+                    "last_stop_name": static_trip.get("last_stop_name"),
                     "latitude": vehicle["position"]["latitude"],
                     "longitude": vehicle["position"]["longitude"],
                     "bearing": vehicle["position"]["bearing"],
