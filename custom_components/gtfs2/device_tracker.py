@@ -6,6 +6,7 @@ from homeassistant.components.device_tracker import SourceType
 from homeassistant.components.device_tracker.config_entry import TrackerEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -35,6 +36,29 @@ def _prune_orphaned_registry_entities(
         entity_registry.async_remove(registry_entry.entity_id)
 
 
+def _prune_orphaned_registry_devices(
+    device_registry: dr.DeviceRegistry,
+    config_entry: ConfigEntry,
+    current_keys: set[str],
+) -> None:
+    """Remove stale tracker devices from the HA device registry."""
+    identifier_prefix = f"vehicle_{config_entry.entry_id}_"
+    for device_entry in dr.async_entries_for_config_entry(
+        device_registry, config_entry.entry_id
+    ):
+        matched_vehicle_key = None
+        for identifier_domain, identifier_value in device_entry.identifiers:
+            if identifier_domain != DOMAIN:
+                continue
+            if not identifier_value.startswith(identifier_prefix):
+                continue
+            matched_vehicle_key = identifier_value[len(identifier_prefix) :]
+            break
+        if matched_vehicle_key is None or matched_vehicle_key in current_keys:
+            continue
+        device_registry.async_remove_device(device_entry.id)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
@@ -46,6 +70,7 @@ async def async_setup_entry(
     ]
 
     entities: dict[str, GTFSVehicleTracker] = {}
+    device_registry = dr.async_get(hass)
     entity_registry = er.async_get(hass)
 
     @callback
@@ -58,6 +83,7 @@ async def async_setup_entry(
         }
 
         _prune_orphaned_registry_entities(entity_registry, config_entry, current_keys)
+        _prune_orphaned_registry_devices(device_registry, config_entry, current_keys)
 
         for existing_key, tracker in list(entities.items()):
             if existing_key in current_keys:
