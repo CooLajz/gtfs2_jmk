@@ -16,6 +16,25 @@ from .coordinator import GTFSUpdateCoordinator
 STALE_REFRESHES_BEFORE_PRUNE = 3
 
 
+def _prune_orphaned_registry_entities(
+    entity_registry: er.EntityRegistry,
+    config_entry: ConfigEntry,
+    current_keys: set[str],
+) -> None:
+    """Remove stale tracker entities from the HA entity registry."""
+    unique_prefix = f"{config_entry.entry_id}_vehicle_"
+    for registry_entry in er.async_entries_for_config_entry(
+        entity_registry, config_entry.entry_id
+    ):
+        unique_id = registry_entry.unique_id or ""
+        if not unique_id.startswith(unique_prefix):
+            continue
+        vehicle_key = unique_id[len(unique_prefix) :]
+        if vehicle_key in current_keys:
+            continue
+        entity_registry.async_remove(registry_entry.entity_id)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
@@ -37,6 +56,8 @@ async def async_setup_entry(
             for vehicle in vehicles
             if vehicle.get("entity_key") or vehicle.get("vehicle_id") or vehicle.get("trip_id")
         }
+
+        _prune_orphaned_registry_entities(entity_registry, config_entry, current_keys)
 
         for existing_key, tracker in list(entities.items()):
             if existing_key in current_keys:
